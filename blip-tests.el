@@ -26,6 +26,7 @@
 
 (require 'ert)
 (require 'ert-x)
+(require 'bytecomp)
 
 (defvar blip--self-tests-file)
 (setq blip--self-tests-file (or byte-compile-current-file

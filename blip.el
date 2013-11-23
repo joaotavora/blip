@@ -43,6 +43,7 @@
 ;;; TODO: fix bugs and cleanup
 ;;;
 ;;; Code:
+(require 'cl-lib)
 
 (defvar blip-find-test-file-rules
   '((basename "-test" "." extension)
@@ -120,20 +121,20 @@ appropriate callback. Its return value is ignored.")
 ;;; Helper fns
 ;;;
 (defun blip--test-file (src-file rule)
-  (loop for token in rule
-        concat (pcase token
-                 (`basename (file-name-base src-file))
-                 (`extension (file-name-extension src-file))
-                 (`project-dir (locate-dominating-file src-file ".git"))
-                 (t token))))
+  (cl-loop for token in rule
+           concat (pcase token
+                    (`basename (file-name-base src-file))
+                    (`extension (file-name-extension src-file))
+                    (`project-dir (locate-dominating-file src-file ".git"))
+                    (t token))))
 
 (defun blip--find-test-file (src-file)
-  (loop for rule in blip-find-test-file-rules
-        for test-file = (expand-file-name
-                         (blip--test-file src-file rule)
-                         (file-name-directory src-file))
-        when (file-readable-p test-file)
-        return (expand-file-name test-file )))
+  (cl-loop for rule in blip-find-test-file-rules
+           for test-file = (expand-file-name
+                            (blip--test-file src-file rule)
+                            (file-name-directory src-file))
+           when (file-readable-p test-file)
+           return (expand-file-name test-file )))
 
 (defvar blip--run-tests-function nil)
 (put 'blip--run-tests-function 'risky-local-variable t)
@@ -142,9 +143,9 @@ appropriate callback. Its return value is ignored.")
 
 
 (defun blip--guess-run-tests-function (test-file)
-  (loop for (regexp . function) in blip-run-functions
-        when (string-match regexp test-file)
-        return function))
+  (cl-loop for (regexp . function) in blip-run-functions
+           when (string-match regexp test-file)
+           return function))
 
 (defun blip--run-tests-function (test-file)
   (or blip--run-tests-function
@@ -166,39 +167,14 @@ appropriate callback. Its return value is ignored.")
 
 ;;; mode line
 ;;;
-(defvar blip--colours '(("orange"      . "#FF9900")
-                            ("dark-orange" . "#E86400")
-                            ("green"       . "#00FF00")
-                            ("dark-green"  . "#00C400")
-                            ("red"         . "#FF0000")
-                            ("dark-red"    . "#C40000")))
-
-(defun blip--dot (colour)
-  "Return an XPM string representing a dot whose colour is COLOUR."
-  (format "/* XPM */
-static char * test_pass_xpm[] = {
-\"18 13 4 1\",
-\" 	c None\",
-\".	c #000000\",
-\"+	c %s\",
-\"c	c %s\",
-\"                  \",
-\"       .....      \",
-\"      .ccccc.     \",
-\"     .cc+++cc.    \",
-\"    .cc+++++cc.   \",
-\"    .c+++++++c.   \",
-\"    .c+++++++c.   \",
-\"    .c+++++++c.   \",
-\"    .cc+++++cc.   \",
-\"     .cc+++cc.    \",
-\"      .ccccc.     \",
-\"       .....      \",
-\"                  \"};"
-          (cdr (assoc colour blip--colours))
-          (cdr (assoc (concat "dark-"colour) blip--colours))))
+(defvar blip--status-colors
+  '((passed . "green")
+    (failed . "red")
+    (running . "orange")))
 
 (defvar blip--last-results nil)
+
+(defvar blip-mode-line-string "blip")
 
 (defun blip--find-output-buffer (&optional _event)
   (interactive "e")
@@ -208,52 +184,43 @@ static char * test_pass_xpm[] = {
   (let ((map (make-sparse-keymap)))
     (define-key map [mode-line mouse-1] 'blip--find-output-buffer)
     (if blip--last-results
-        `(" blip"
-          (:propertize "yo"
-                       help-echo ,(third blip--last-results)
-                       keymap ,map
-                       display
-                       (image :type xpm
-                              :data ,(cond ((eq (first blip--last-results)
-                                                'running)
-                                            (blip--dot "orange"))
-                                           ((first blip--last-results)
-                                            (blip--dot "green"))
-                                           (t
-                                            (blip--dot "red")))
-                              :ascent center)))
-      " blip(?)")))
+        `(" "
+          (:propertize blip-mode-line-string
+                       ,@(when (and window-system
+                                    (memq 'xpm image-types))
+                           `(help-echo ,(third blip--last-results)
+                             keymap ,map))
+                       face
+                       (:background ,(cdr (assoc (cl-first blip--last-results)
+                                                 blip--status-colors)))))
+    " blip(?)")))
+
+(defvar blip--verbose t)
+
+(defun blip--record-results (_test-file _src-file status buffer message)
+  (set (make-local-variable 'blip--last-results)
+       (list status buffer message)))
 
 (defun blip--run-tests-using-function (function test-file src-file buffer)
-  (cl-flet ((echo-message (passed message output-buffer)
-                          (message "Tests for %s in %s %s %s(see buffer %s)"
-                                   (or (and src-file
-                                            (file-name-nondirectory src-file))
-                                       buffer)
-                                   (file-name-nondirectory test-file)
-                                   (if passed "passed" "failed")
-                                   (if message (format " with message \"%s\" " message) "")
-                                   output-buffer)))
-    (set (make-local-variable 'blip--last-results)
-         (list 'running nil "Running tests for %s in %s"
-               (or (and src-file
-                        (file-name-nondirectory src-file))
-                   buffer)
-               (file-name-nondirectory test-file)))
-    (funcall function test-file
-             #'(lambda (message output-buffer)
-                 (with-current-buffer buffer
-                   (set (make-local-variable 'blip--last-results)
-                        (list t output-buffer message))
-                   (echo-message t message output-buffer)))
-             #'(lambda (message output-buffer)
-                 (with-current-buffer buffer
-                   (set (make-local-variable 'blip--last-results)
-                        (list nil output-buffer message))
-                   (echo-message t message output-buffer)))
-             :src-file src-file
-             :reload-test (blip--file-might-need-reloading-p test-file)
-             :reload-source (and src-file (blip--file-might-need-reloading-p src-file)))))
+  (blip--record-results test-file src-file
+                        'running nil (format "Running tests for %s in %s"
+                                             (or (and src-file
+                                                      (file-name-nondirectory src-file))
+                                                 buffer)
+                                             (file-name-nondirectory test-file)))
+
+  (funcall function test-file
+           #'(lambda (message output-buffer)
+               (with-current-buffer buffer
+                 (blip--record-results test-file src-file
+                                       'passed output-buffer message)))
+           #'(lambda (message output-buffer)
+               (with-current-buffer buffer
+                 (blip--record-results test-file src-file
+                                       'failed output-buffer message)))
+           :src-file src-file
+           :reload-test (blip--file-might-need-reloading-p test-file)
+           :reload-source (and src-file (blip--file-might-need-reloading-p src-file))))
 
 
 ;;; Minor mode and main entry point
@@ -269,22 +236,32 @@ static char * test_pass_xpm[] = {
                         (blip--run-tests-function test-file))))
     (cond ((and test-file
                 (not function))
-           (display-warning 'blip (format "don't know how to run the tests for %s in %s"
-                                          (file-name-nondirectory src-file)
-                                          (file-name-nondirectory test-file))))
+           (blip--record-results test-file src-file
+                                 'failed
+                                 nil
+                                 (format "don't know how to run the tests for %s in %s"
+                                         (file-name-nondirectory src-file)
+                                         (file-name-nondirectory test-file))))
           ((and src-file (not test-file))
-           (display-warning 'blip (format "can't find the tests for %s"
-                                          (file-name-nondirectory src-file))))
+           (blip--record-results test-file src-file
+                                 'failed nil (format "can't find the tests for %s"
+                                                     (file-name-nondirectory src-file))))
           ((not test-file)
-           (display-warning 'blip (format "can't find the tests for buffer %s" buffer)))
+           (blip--record-results test-file src-file
+                                 'failed nil (format "can't find the tests for buffer %s" buffer)))
           (t
-           (message (format "running the tests for %s in %s using %s"
-                            (file-name-nondirectory src-file)
-                            (file-name-nondirectory test-file)
-                            (or (and (symbolp function)
-                                     function)
-                                "a suitable but anonymous function")))
-           (blip--run-tests-using-function function test-file src-file buffer)))))
+           (condition-case err
+               (blip--run-tests-using-function function test-file src-file buffer)
+             (error (blip--record-results test-file src-file
+                                          'failed nil (format "error running tests for %s in %s using %s: %s"
+                                                              (file-name-nondirectory src-file)
+                                                              (file-name-nondirectory test-file)
+                                                              (or (and (symbolp function)
+                                                                       function)
+                                                                  "a suitable but anonymous function")
+                                                              err))))))))
+
+
 
 (define-minor-mode blip-mode "A minor mode for running unit-tests automatically"
   nil (:eval
@@ -321,8 +298,8 @@ static char * test_pass_xpm[] = {
     ;; always used by ert. `display-buffer-*' variables don't do the
     ;; trick because they need to return a window selecting the buffer
     ;;
-    (letf (((symbol-function 'pop-to-buffer) #'(lambda (buffer &optional _action _norecord)
-                                                 (set-buffer buffer))))
+    (cl-letf (((symbol-function 'pop-to-buffer) #'(lambda (buffer &optional _action _norecord)
+                                                    (set-buffer buffer))))
       (let* ((output-buffer (get-buffer-create
                              (format "*blip-ert-tests-for-%s*" (file-name-nondirectory src-file))))
              (stats (ert t output-buffer))

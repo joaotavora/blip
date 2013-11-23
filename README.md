@@ -30,8 +30,6 @@ Notes
 * I think `blip.el` does a bit more and takes greater advantage of
   lexical binding in emacs 24
 * NIH
-* I stole the pixmap generating code for the little blips from it,
-  thanks very much!
 
 TODO
 ----

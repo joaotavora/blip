@@ -19,13 +19,6 @@ are supported through `blip--run-ert-tests`, which is bundled.
 Both `blip-find-test-file-rules` and `blip-run-functions` are intended
 to be customized by the user, see their doc.
 
-TODO
-----
-
-TODO: more self tests
-TODO: more functions to run tests in other languages/frameworks
-TODO: fix bugs and cleanup
-
 Notes
 -----
 
@@ -33,9 +26,16 @@ Notes
 [unit-test.el](http://www.emacswiki.org/emacs/unit-test.el) but
 
 * NIH
-* I didn't know of `unit-test.el` when I started, and also:
+* I didn't know of `unit-test.el` when I started
 * I think `blip.el` does a bit more and takes greater advantage of
   lexical binding in emacs 24
 * NIH
 * I stole the pixmap generating code for the little blips from it,
   thanks very much!
+
+TODO
+----
+
+* more self tests
+* more functions to run tests in other languages/frameworks
+* fix bugs and cleanup

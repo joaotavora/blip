@@ -1,4 +1,4 @@
-;;; blip.el --- automatically find and run tests for the current buffer   -*- lexical-binding: t; -*-
+;;; blip.el --- automatically find and run tests in emacs   -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2013  João Távora
 
@@ -25,16 +25,18 @@
 ;;;   it, and also NIH and also racecar. Still, pixmap-generating code
 ;;;   stolen from it, thanks very much!]
 ;;;
-;;; The idea is that you use M-x blip-mode to enable `blip-mode',
-;;; which runs tests whenever you save the buffer.
+;;; Use `M-x blip-mode' to enable `blip-mode', which runs tests whenever
+;;; you save the buffer.
 ;;;
-;;; Tests are deduced using the rules in `blip-find-test-file-rules'
+;;; Tests are deduced using the rules in the variable
+;;; `blip-find-test-file-rules'
 ;;;
-;;; The function to perform the testing is deduced using
-;;; `blip-run-functions'. Currently only emacs24's own
-;;; `ert'-based tests are supported through `blip--run-ert-tests'.
+;;; The function to perform the testing is deduced using the variable
+;;; `blip-run-functions'. Currently only emacs24's own `ert'-based tests
+;;; are supported through `blip--run-ert-tests', which is bundled.
 ;;;
-;;; Both these variables are customizable by the user, see their doc.
+;;; Both `blip-find-test-file-rules' and `blip-run-functions' are intended
+;;; to be customized by the user, see their doc.
 ;;;
 ;;; TODO: more self tests
 ;;; TODO: more functions to run tests in other languages/frameworks
@@ -185,9 +187,13 @@ static char * test_pass_xpm[] = {
 
 (defvar blip--last-results nil)
 
+(defun blip--find-output-buffer (&optional _event)
+  (interactive "e")
+  (switch-to-buffer (second blip--last-results)))
+
 (defun blip--mode-line-indicator ()
   (let ((map (make-sparse-keymap)))
-    (define-key map [mode-line mouse-1] 'show-test-none)
+    (define-key map [mode-line mouse-1] 'blip--find-output-buffer)
     (if blip--last-results
         `(" blip"
           (:propertize "yo"
@@ -225,12 +231,12 @@ static char * test_pass_xpm[] = {
              #'(lambda (message output-buffer)
                  (with-current-buffer buffer
                    (set (make-local-variable 'blip--last-results)
-                        (list t buffer message))
+                        (list t output-buffer message))
                    (echo-message t message output-buffer)))
              #'(lambda (message output-buffer)
                  (with-current-buffer buffer
                    (set (make-local-variable 'blip--last-results)
-                        (list nil buffer message))
+                        (list nil output-buffer message))
                    (echo-message t message output-buffer)))
              :src-file src-file
              :reload-test (blip--file-might-need-reloading-p test-file)
@@ -297,13 +303,14 @@ static char * test_pass_xpm[] = {
   ;; (when reload-source
   ;;   ( src-file 'load))
   (with-temp-buffer
+    ;; HACK: Use letf here to neutralize 'pop-to-buffer, which is
+    ;; always used by ert. `display-buffer-*' variables don't do the
+    ;; trick because they need to return a window selecting the buffer
+    ;;
     (letf (((symbol-function 'pop-to-buffer) #'(lambda (buffer &optional _action _norecord)
                                                  (set-buffer buffer))))
       (let* ((output-buffer (get-buffer-create
                              (format "*blip-ert-tests-for-%s*" (file-name-nondirectory src-file))))
-             (display-buffer-alist `(("" .
-                                      (,#'(lambda (buffer _alist) (set-buffer buffer) (set-window-buffer (selected-window)
-                                                                                                         buffer)) . nil))))
              (stats (ert t output-buffer))
              (total (and stats (ert-stats-total stats)))
              (completed (and stats (ert-stats-completed stats)))

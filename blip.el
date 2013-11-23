@@ -79,29 +79,42 @@ will work if your tests are located in a separate directory ")
 (defvar blip-run-functions
   `((".*\.el$" . blip--run-ert-tests)
     (".*\.lisp$" . blip--run-stefil-tests-with-slime))
-"Decides which function should run tests for each file.
+  "Decides which function should run tests for each file.
 
 Value of this variable is an alist of (REGEXP . FUNCTION).  When
 a REGEXP matches the test file name, the FUNCTION is selected for
 actually performing the test.
 
-FUNCTION is passed 4 arguments:
+FUNCTION is passed 3 mandatory arguments and variable number of CL-style
+keyword arguments:
 
-1. The test file;
-2. The source file or nil if the source buffer hasn't been saved yet;
-3. A boolean suggesting that the test file be reloaded;
-4. A boolean suggesting that the source file be reloaded;
+* The test file;
+
+* A callback function for signalling success. Should be called by
+   FUNCTION with two arguments: a short descriptive message
+   summarizing the test run and a buffer name or buffer object
+   containing the description of the tests
+
+* A callback function for signalling failure. Should be called by
+   FUNCTION with the same arguments as the previous.
+
+The keyword arguments are
+
+* :SRC-FILE, set to the source file or nil if the source buffer
+  hasn't been saved yet.
+
+* :RELOAD-TEST-P, a boolean suggesting that the test file be
+  reloaded;
+
+* :RELOAD-SOURCE-P, a boolean suggesting that the source file be
+  reloaded;
 
 Reloading suggestions are calculated from file mtimes and from
 buffer-modification status in the files are opened in
 emacs. FUNCTION is free to ignore the suggestions.
 
-FUNCTION is responsible for running the tests and returning three values
-
-1. A boolean indicating if the tests passed.
-2. A buffer name or buffer object containing a description of the tests
-3. A short descriptive message summarizing the tests run")
-
+FUNCTION is responsible for running the tests and calling the
+appropriate callback. Its return value is ignored.")
 
 
 ;;; Helper fns
@@ -296,7 +309,8 @@ static char * test_pass_xpm[] = {
 (cl-defun blip--run-ert-tests (test-file success-fn failed-fn &key
                                          src-file
                                          _reload-source
-                                         reload-test)
+                                         reload-test
+                                         &allow-other-keys)
   (when reload-test
     (ert-delete-all-tests)
     (load-file test-file))
